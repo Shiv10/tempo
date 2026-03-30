@@ -1,0 +1,4 @@
+# No pip dependencies — everything used is Python standard library.
+# The only external requirement is FFmpeg, installed at the system level:
+#
+#   brew install ffmpeg
