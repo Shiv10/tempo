@@ -186,6 +186,14 @@ Because both the audio and the video were cut using the exact same list of speec
 
 ---
 
+## Exporting Individual Segments
+
+If you intend to import the cuts into a timeline editor (like Premiere Pro), use the `--split-segments` flag. The tool will place each numbered segment into an `<input>_chunks/` directory. 
+
+To guarantee perfect frame parity and zero pre-roll glitches, the tool processes the video in a single continuous pass exactly as normal, but forces keyframes at every cut boundary. Once the unified file is complete, it is losslessly sliced into parts. This ensures the separate clips sequentially align without missing frames, gaps, or overlaps.
+
+---
+
 ## The Preset System
 
 Rather than requiring you to understand decibel values, the tool offers three named configurations:
