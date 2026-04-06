@@ -92,6 +92,7 @@ def cut_video_only(
     segments: list[tuple[float, float]],
     output_path: str,
     no_hw: bool,
+    forced_keyframes: list[float] = None,
 ) -> None:
     """
     Cuts the video using FFmpeg's trim filter on decoded frames.
@@ -111,6 +112,10 @@ def cut_video_only(
         if use_hw else
         ["-c:v", "libx264", "-preset", "fast", "-crf", "18"]
     )
+    if forced_keyframes:
+        kf_expr = ",".join(f"{t:.6f}" for t in forced_keyframes)
+        video_codec_args.extend(["-force_key_frames", kf_expr])
+
     accel_label = "h264_videotoolbox (HW)" if use_hw else "libx264 (SW)"
     print(f"Cutting video with {accel_label}...")
 
@@ -193,6 +198,8 @@ Examples:
                         help="Detect and report only. No output file.")
     parser.add_argument("--no-hw", action="store_true",
                         help="Disable hardware acceleration.")
+    parser.add_argument("--split-segments", action="store_true",
+                        help="Export each speech segment as an individual video file in chronological order.")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Print all detected intervals.")
     return parser.parse_args()
@@ -290,9 +297,42 @@ def main() -> None:
         print(f"Stitching {len(speech)} audio segments at sample level...")
         stitch_wav(raw_wav, speech, clean_wav)
 
-        cut_video_only(args.input, speech, video_only_mp4, args.no_hw)
+        forced_keyframes = []
+        current_time = 0.0
+        for s, e in speech:
+            forced_keyframes.append(current_time)
+            current_time += (e - s)
+
+        cut_video_only(args.input, speech, video_only_mp4, args.no_hw, forced_keyframes if args.split_segments else None)
 
         mux(video_only_mp4, clean_wav, output_path)
+
+        if args.split_segments:
+            print(f"Splitting into {len(speech)} segments...")
+            chunks_dir = input_path.parent / f"{input_path.stem}_chunks"
+            chunks_dir.mkdir(parents=True, exist_ok=True)
+            split_pattern = str(chunks_dir / f"{input_path.stem}_%03d{input_path.suffix}")
+            
+            split_points = forced_keyframes[1:]
+            if split_points:
+                times_str = ",".join(f"{t:.6f}" for t in split_points)
+                split_cmd = [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error",
+                    "-i", output_path,
+                    "-f", "segment",
+                    "-segment_times", times_str,
+                    "-reset_timestamps", "1",
+                    "-c", "copy",
+                    "-y",
+                    split_pattern
+                ]
+                result = subprocess.run(split_cmd)
+                if result.returncode != 0:
+                    sys.exit("ERROR: ffmpeg segment splitting failed.")
+
+                # Remove the combined output as we only want individual files in this mode
+                Path(output_path).unlink(missing_ok=True)
+                output_path = split_pattern.replace("%03d", "...")
 
     print(f"\nDone → {output_path}")
     print(f"Removed {stats['removed_s']:.1f}s ({stats['removed_pct']:.0f}%) "
